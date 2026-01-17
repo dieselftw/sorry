@@ -34,6 +34,14 @@ struct Args {
     #[arg(long = "show-config")]
     show_config: bool,
 
+    /// Shell type (bash/zsh) - used when --last-commands is provided
+    #[arg(long = "shell")]
+    shell: Option<String>,
+
+    /// Last commands from shell history (newline-separated)
+    #[arg(long = "last-commands")]
+    last_commands: Option<String>,
+
     /// The prompt to send to the LLM
     #[arg(trailing_var_arg = true)]
     prompt: Vec<String>,
@@ -91,7 +99,7 @@ fn main() {
 
     let prompt = args.prompt.join(" ");
 
-    match call_llm(&prompt) {
+    match call_llm(&prompt, args.last_commands.as_deref()) {
         Ok(response) => {
             println!("{}", response);
         }

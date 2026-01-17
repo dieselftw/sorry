@@ -18,10 +18,11 @@ fn get_history_path() -> Option<PathBuf> {
     // Check which shell is being used
     let shell = env::var("SHELL").unwrap_or_default();
     
-    let candidates = if shell.contains("zsh") {
+    let mut candidates = if shell.contains("zsh") {
         vec![
             home.join(".zsh_history"),
             home.join(".zhistory"),
+            home.join("Library/History/zsh_history"), // macOS zsh history location
         ]
     } else if shell.contains("bash") {
         vec![
@@ -33,15 +34,25 @@ fn get_history_path() -> Option<PathBuf> {
             home.join(".zsh_history"),
             home.join(".bash_history"),
             home.join(".zhistory"),
+            home.join("Library/History/zsh_history"), // macOS zsh history location
         ]
     };
+
+    // Also try expanding ~ in HISTFILE if it wasn't found
+    if let Ok(histfile) = env::var("HISTFILE") {
+        if histfile.starts_with("~/") {
+            let expanded = home.join(&histfile[2..]);
+            candidates.insert(0, expanded);
+        }
+    }
 
     candidates.into_iter().find(|p| p.exists())
 }
 
 /// Parse zsh history format
-/// Zsh extended history format: ": timestamp:0;command"
+/// Zsh extended history format: ": timestamp:duration;command"
 /// Simple format: just the command
+/// Multi-line commands can span multiple lines (continuation lines don't start with ": ")
 fn parse_zsh_line(line: &str) -> Option<String> {
     let line = line.trim();
     if line.is_empty() {
@@ -49,17 +60,23 @@ fn parse_zsh_line(line: &str) -> Option<String> {
     }
     
     // Extended history format: ": 1234567890:0;actual command"
-    if line.starts_with(": ") && line.contains(";") {
-        if let Some(idx) = line.find(';') {
-            let cmd = &line[idx + 1..];
-            if !cmd.is_empty() {
-                return Some(cmd.to_string());
+    // Or: ": 1234567890:duration;command"
+    if line.starts_with(": ") {
+        if line.contains(";") {
+            if let Some(idx) = line.find(';') {
+                let cmd = &line[idx + 1..];
+                if !cmd.is_empty() {
+                    return Some(cmd.to_string());
+                }
             }
         }
+        // If it starts with ": " but has no semicolon, it might be malformed
+        // Skip it
         return None;
     }
     
-    // Simple format - just the command
+    // Simple format - just the command (non-extended history)
+    // Or continuation line from multi-line command
     Some(line.to_string())
 }
 
@@ -86,22 +103,67 @@ pub fn get_last_commands(count: usize) -> Vec<String> {
         .to_string_lossy()
         .contains("zsh");
 
-    let commands: Vec<String> = content
-        .lines()
-        .filter_map(|line| {
-            if is_zsh {
-                parse_zsh_line(line)
-            } else {
-                parse_bash_line(line)
+    // For zsh extended history, we need to handle multi-line commands
+    // Commands starting with ": " are new entries, others are continuations
+    let mut commands = Vec::new();
+    
+    if is_zsh {
+        let mut current_command = String::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
             }
-        })
-        // Filter out sorry commands to avoid recursive context
-        .filter(|cmd| !cmd.starts_with("sorry"))
-        .collect();
+            
+            // New command entry (starts with ": ")
+            if line.starts_with(": ") {
+                // Save previous command if any
+                if !current_command.is_empty() {
+                    commands.push(current_command.trim().to_string());
+                    current_command.clear();
+                }
+                
+                // Parse new command
+                if let Some(cmd) = parse_zsh_line(line) {
+                    current_command = cmd;
+                }
+            } else {
+                // Continuation line - append to current command
+                if !current_command.is_empty() {
+                    current_command.push('\n');
+                }
+                current_command.push_str(line);
+            }
+        }
+        
+        // Don't forget the last command
+        if !current_command.is_empty() {
+            commands.push(current_command.trim().to_string());
+        }
+    } else {
+        // Bash - simpler, one command per line
+        commands = content
+            .lines()
+            .filter_map(|line| parse_bash_line(line))
+            .collect();
+    }
+
+    // Filter out sorry commands to avoid recursive context
+    commands.retain(|cmd| !cmd.trim().starts_with("sorry"));
 
     // Get last N commands
     let start = commands.len().saturating_sub(count);
     commands[start..].to_vec()
+}
+
+/// Parse commands from a newline-separated string (from shell history command)
+pub fn parse_commands_from_string(commands_str: &str) -> Vec<String> {
+    commands_str
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .filter(|cmd| !cmd.trim().starts_with("sorry"))
+        .collect()
 }
 
 /// Format commands for inclusion in prompt

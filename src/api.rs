@@ -48,7 +48,7 @@ struct ApiErrorDetail {
 // LLM API call
 // ============================================================================
 
-pub fn call_llm(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub fn call_llm(prompt: &str, provided_commands: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
     let config = load_config();
 
     let provider_name = config.provider.ok_or(
@@ -71,8 +71,24 @@ pub fn call_llm(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mood = config.mood.unwrap_or_default();
     let system_prompt = mood.system_prompt(); // Returns String now
 
-    // Get terminal history context
-    let commands = get_last_commands(10);
+    // Get terminal history context - use provided commands if available, otherwise read from file
+    let commands = if let Some(cmd_str) = provided_commands {
+        crate::history::parse_commands_from_string(cmd_str)
+    } else {
+        get_last_commands(10)
+    };
+    
+    // Print the history for debugging
+    if !commands.is_empty() {
+        eprintln!("\n📜 Found {} command(s) in history:\n", commands.len());
+        for (i, cmd) in commands.iter().enumerate() {
+            eprintln!("  {}. {}", i + 1, cmd);
+        }
+        eprintln!();
+    } else {
+        eprintln!("\n⚠️  No commands found in history.\n");
+    }
+    
     let history_context = format_history_context(&commands);
 
     // Build user message with history context

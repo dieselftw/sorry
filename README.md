@@ -16,6 +16,35 @@ cargo install --path .
 
 ## Setup
 
+### 0. Add shell function (recommended)
+
+To get the most accurate command history, add the shell function to your shell config:
+
+**For Bash** (`~/.bashrc` or `~/.bash_profile`):
+```bash
+# Set path to sorry binary (adjust if installed elsewhere)
+export SORRY_BIN="$HOME/.cargo/bin/sorry"
+
+# Source the shell function
+source /path/to/sorry/shell/sorry.bash
+```
+
+**For Zsh** (`~/.zshrc`):
+```bash
+# Set path to sorry binary (adjust if installed elsewhere)
+export SORRY_BIN="$HOME/.cargo/bin/sorry"
+
+# Source the shell function
+source /path/to/sorry/shell/sorry.zsh
+```
+
+The shell function ensures history is captured from your current session. Without it, `sorry` will try to read from history files (which may not be up-to-date).
+
+**Optional:** You can override the default count of 10 commands:
+```bash
+sorry 5 I need help  # Uses last 5 commands instead of 10
+```
+
 ### 1. Configure a provider
 
 ```bash
@@ -68,7 +97,7 @@ sorry what did I just do
 sorry help
 ```
 
-It automatically reads your last 10 commands from shell history (zsh/bash) and includes them in the prompt, so the LLM knows what you did.
+It automatically includes your last 10 terminal commands for context. If you've set up the shell function (recommended), it reads from your current session's history. Otherwise, it falls back to reading from history files.
 
 ## Commands
 
