@@ -69,7 +69,7 @@ pub fn call_llm(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     }
 
     let mood = config.mood.unwrap_or_default();
-    let system_prompt = mood.system_prompt();
+    let system_prompt = mood.system_prompt(); // Returns String now
 
     // Get terminal history context
     let commands = get_last_commands(10);
@@ -89,7 +89,7 @@ pub fn call_llm(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: system_prompt.to_string(),
+                content: system_prompt,
             },
             ChatMessage {
                 role: "user".to_string(),
