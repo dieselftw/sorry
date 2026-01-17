@@ -2,6 +2,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process;
 
@@ -9,7 +10,7 @@ use std::process;
 // Config types
 // ============================================================================
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ProviderConfig {
     api_key: String,
     base_url: String,
@@ -22,6 +23,47 @@ struct Config {
     providers: HashMap<String, ProviderConfig>,
 }
 
+// Available models for each provider
+fn openai_models() -> Vec<&'static str> {
+    vec![
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "gpt-4.1",
+        "gpt-4o",
+        "gpt-4o-mini",
+        "o1",
+        "o1-mini",
+        "o3-mini",
+    ]
+}
+
+fn groq_models() -> Vec<&'static str> {
+    vec![
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+    ]
+}
+
+fn default_model(provider: &str) -> &'static str {
+    match provider {
+        "openai" => "gpt-4.1-mini",
+        "groq" => "llama-3.3-70b-versatile",
+        _ => "gpt-4.1-mini",
+    }
+}
+
+fn default_base_url(provider: &str) -> &'static str {
+    match provider {
+        "openai" => "https://api.openai.com/v1",
+        "groq" => "https://api.groq.com/openai/v1",
+        _ => "https://api.openai.com/v1",
+    }
+}
+
 impl Config {
     fn default_providers() -> HashMap<String, ProviderConfig> {
         let mut providers = HashMap::new();
@@ -29,16 +71,16 @@ impl Config {
             "openai".to_string(),
             ProviderConfig {
                 api_key: String::new(),
-                base_url: "https://api.openai.com/v1".to_string(),
-                model: "gpt-4.1-mini".to_string(),
+                base_url: default_base_url("openai").to_string(),
+                model: default_model("openai").to_string(),
             },
         );
         providers.insert(
             "groq".to_string(),
             ProviderConfig {
                 api_key: String::new(),
-                base_url: "https://api.groq.com/openai/v1".to_string(),
-                model: "llama-3.1-70b-versatile".to_string(),
+                base_url: default_base_url("groq").to_string(),
+                model: default_model("groq").to_string(),
             },
         );
         providers
@@ -95,13 +137,13 @@ struct ApiErrorDetail {
 #[command(about = "Send your mistakes to an LLM and get help")]
 #[command(version)]
 struct Args {
-    /// Configure OpenAI API key
-    #[arg(long = "config-openai", value_name = "API_KEY")]
-    config_openai: Option<String>,
+    /// Configure OpenAI (interactive setup)
+    #[arg(long = "config-openai")]
+    config_openai: bool,
 
-    /// Configure Groq API key
-    #[arg(long = "config-groq", value_name = "API_KEY")]
-    config_groq: Option<String>,
+    /// Configure Groq (interactive setup)
+    #[arg(long = "config-groq")]
+    config_groq: bool,
 
     /// Show current configuration (without revealing keys)
     #[arg(long = "show-config")]
@@ -143,7 +185,23 @@ fn save_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn configure_provider(provider: &str, api_key: String) -> Result<(), Box<dyn std::error::Error>> {
+// ============================================================================
+// Interactive configuration
+// ============================================================================
+
+fn read_line() -> String {
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap_or_default();
+    input.trim().to_string()
+}
+
+fn prompt_input(prompt: &str) -> String {
+    print!("{}", prompt);
+    io::stdout().flush().unwrap();
+    read_line()
+}
+
+fn configure_provider_interactive(provider: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = load_config();
 
     // Ensure we have default provider configs
@@ -151,29 +209,54 @@ fn configure_provider(provider: &str, api_key: String) -> Result<(), Box<dyn std
         config.providers = Config::default_providers();
     }
 
-    // Update the API key for this provider
-    if let Some(provider_config) = config.providers.get_mut(provider) {
-        provider_config.api_key = api_key;
-    } else {
-        // Add provider with defaults if it doesn't exist
-        let defaults = Config::default_providers();
-        if let Some(default_config) = defaults.get(provider) {
-            config.providers.insert(
-                provider.to_string(),
-                ProviderConfig {
-                    api_key,
-                    base_url: default_config.base_url.clone(),
-                    model: default_config.model.clone(),
-                },
-            );
-        }
+    println!("\n🔧 Configuring {}\n", provider);
+
+    // Step 1: Get API key
+    let api_key = prompt_input("Enter API key: ");
+    if api_key.is_empty() {
+        return Err("API key cannot be empty.".into());
     }
+
+    // Step 2: Select model
+    let models: Vec<&str> = match provider {
+        "openai" => openai_models(),
+        "groq" => groq_models(),
+        _ => vec![],
+    };
+    let default = default_model(provider);
+
+    println!("\nSuggested models:");
+    for model in models.iter() {
+        println!("  - {}", model);
+    }
+    println!();
+
+    let model_input = prompt_input(&format!("Enter model name [default: {}]: ", default));
+
+    let model = if model_input.is_empty() {
+        default.to_string()
+    } else {
+        model_input
+    };
+
+    // Update config
+    let provider_config = config.providers.entry(provider.to_string()).or_insert_with(|| {
+        ProviderConfig {
+            api_key: String::new(),
+            base_url: default_base_url(provider).to_string(),
+            model: default.to_string(),
+        }
+    });
+
+    provider_config.api_key = api_key;
+    provider_config.model = model.clone();
 
     // Set as active provider
     config.provider = Some(provider.to_string());
 
     save_config(&config)?;
-    println!("✓ Configured {} as the active provider.", provider);
+    
+    println!("\n✓ Configured {} with model '{}'", provider, model);
     Ok(())
 }
 
@@ -196,7 +279,7 @@ fn show_config() {
         }
         None => {
             println!("No provider configured.");
-            println!("Run 'sorry --config-openai <api-key>' or 'sorry --config-groq <api-key>' to set up.");
+            println!("Run 'sorry --config-openai' or 'sorry --config-groq' to set up.");
         }
     }
 }
@@ -209,7 +292,7 @@ fn call_llm(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let config = load_config();
 
     let provider_name = config.provider.ok_or(
-        "No provider configured. Run 'sorry --config-openai <api-key>' or 'sorry --config-groq <api-key>' first."
+        "No provider configured. Run 'sorry --config-openai' or 'sorry --config-groq' first."
     )?;
 
     let provider = config.providers.get(&provider_name).ok_or(format!(
@@ -219,7 +302,7 @@ fn call_llm(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
 
     if provider.api_key.is_empty() {
         return Err(format!(
-            "API key not set for provider '{}'. Run 'sorry --config-{} <api-key>' to configure.",
+            "API key not set for provider '{}'. Run 'sorry --config-{}' to configure.",
             provider_name, provider_name
         )
         .into());
@@ -280,18 +363,18 @@ fn main() {
     let args = Args::parse();
 
     // Handle --config-openai
-    if let Some(api_key) = args.config_openai {
-        if let Err(e) = configure_provider("openai", api_key) {
-            eprintln!("Error configuring OpenAI: {}", e);
+    if args.config_openai {
+        if let Err(e) = configure_provider_interactive("openai") {
+            eprintln!("Error: {}", e);
             process::exit(1);
         }
         return;
     }
 
     // Handle --config-groq
-    if let Some(api_key) = args.config_groq {
-        if let Err(e) = configure_provider("groq", api_key) {
-            eprintln!("Error configuring Groq: {}", e);
+    if args.config_groq {
+        if let Err(e) = configure_provider_interactive("groq") {
+            eprintln!("Error: {}", e);
             process::exit(1);
         }
         return;
@@ -306,8 +389,8 @@ fn main() {
     // Normal path: send prompt to LLM
     if args.prompt.is_empty() {
         eprintln!("Usage: sorry <your message about what went wrong>");
-        eprintln!("       sorry --config-openai <api-key>");
-        eprintln!("       sorry --config-groq <api-key>");
+        eprintln!("       sorry --config-openai");
+        eprintln!("       sorry --config-groq");
         eprintln!("       sorry --show-config");
         process::exit(1);
     }
