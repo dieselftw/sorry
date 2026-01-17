@@ -2,8 +2,10 @@
 
 A tiny Rust CLI that sends your terminal/git mistakes to an LLM and prints helpful advice.
 
+It automatically includes your last 10 terminal commands for context.
+
 ```bash
-sorry I accidentally force pushed to main
+sorry I messed up
 ```
 
 ## Installation
@@ -12,16 +14,9 @@ sorry I accidentally force pushed to main
 cargo install --path .
 ```
 
-Or build from source:
-
-```bash
-cargo build --release
-# Binary at ./target/release/sorry
-```
-
 ## Setup
 
-Run the interactive configuration for your preferred provider:
+### 1. Configure a provider
 
 ```bash
 # OpenAI
@@ -31,87 +26,70 @@ sorry --config-openai
 sorry --config-groq
 ```
 
-You'll be prompted for:
-1. **API key** - paste your key
-2. **Model selection** - pick from a list or press Enter for the default
+You'll be prompted for your API key and model:
 
-Example:
 ```
 🔧 Configuring groq
 
 Enter API key: gsk-xxxxx
+Enter model name (openai/gpt-oss-20b): 
 
-Available models:
-  1. llama-3.3-70b-versatile (default)
-  2. llama-3.1-8b-instant
-  3. llama3-70b-8192
-  4. llama3-8b-8192
-  5. mixtral-8x7b-32768
-  6. gemma2-9b-it
-
-Select model [1-6] or press Enter for default: 
-
-✓ Configured groq with model 'llama-3.3-70b-versatile'
+✓ Configured groq with model 'openai/gpt-oss-20b'
 ```
+
+### 2. Choose your mood
+
+```bash
+sorry --behaviour
+```
+
+```
+🎭 Configure sorry's behaviour
+
+Choose a mood:
+
+  1. Treat me like a princess
+  2. Treat me like a bro
+  3. Treat me like a bitch
+
+Select mood [1-3]: 
+```
+
+**Moods:**
+- **Princess** 👸 - Gentle, supportive, encouraging
+- **Bro** 🤙 - Casual, chill, brief
+- **Bitch** 💅 - Roasts you mercilessly, but still helps
 
 ## Usage
 
-Just type `sorry` followed by your problem:
-
 ```bash
-sorry I made a mistake with the git commit
-sorry I deleted a file I shouldn't have
-sorry I ran rm -rf on the wrong directory
-sorry what does git reflog do
-sorry how do I undo my last commit but keep the changes
+sorry I made a mistake
+sorry what did I just do
+sorry help
 ```
+
+It automatically reads your last 10 commands from shell history (zsh/bash) and includes them in the prompt, so the LLM knows what you did.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `sorry <message>` | Send your problem to the LLM and get help |
-| `sorry --config-openai` | Interactive OpenAI setup (API key + model) |
-| `sorry --config-groq` | Interactive Groq setup (API key + model) |
-| `sorry --show-config` | Show active provider and settings (keys hidden) |
-| `sorry --help` | Show help |
-| `sorry --version` | Show version |
+| `sorry <message>` | Get help (includes last 10 commands as context) |
+| `sorry --config-openai` | Configure OpenAI |
+| `sorry --config-groq` | Configure Groq |
+| `sorry --behaviour` | Choose your mood |
+| `sorry --show-config` | Show current settings |
 
-## Available Models
+## Project Structure
 
-### OpenAI
-- `gpt-4.1-mini` (default)
-- `gpt-4.1-nano`
-- `gpt-4.1`
-- `gpt-4o`
-- `gpt-4o-mini`
-- `o1`, `o1-mini`, `o3-mini`
-
-### Groq
-- `llama-3.3-70b-versatile` (default)
-- `llama-3.1-8b-instant`
-- `llama3-70b-8192`
-- `llama3-8b-8192`
-- `mixtral-8x7b-32768`
-- `gemma2-9b-it`
-
-## Config File
-
-Config is stored at:
-- **macOS**: `~/Library/Application Support/sorry/config.json`
-- **Linux**: `~/.config/sorry/config.json`
-- **Windows**: `%APPDATA%\sorry\config.json`
-
-You can manually edit this file to use custom models or OpenAI-compatible APIs.
-
-## How It Works
-
-1. Parses your message from the command line
-2. Loads your config to get the API key and endpoint
-3. Sends a chat completion request to an OpenAI-compatible API
-4. Prints the response
-
-That's it. It's read-only and never executes any commands or modifies your system.
+```
+src/
+├── main.rs     # CLI entry point
+├── config.rs   # Config types, moods, file I/O
+├── cli.rs      # Interactive configuration
+├── api.rs      # LLM API calls
+└── history.rs  # Shell history reading
+```
 
 ## License
 
