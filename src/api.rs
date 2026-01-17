@@ -78,17 +78,6 @@ pub fn call_llm(prompt: &str, provided_commands: Option<&str>) -> Result<String,
         get_last_commands(10)
     };
     
-    // Print the history for debugging
-    if !commands.is_empty() {
-        eprintln!("\n📜 Found {} command(s) in history:\n", commands.len());
-        for (i, cmd) in commands.iter().enumerate() {
-            eprintln!("  {}. {}", i + 1, cmd);
-        }
-        eprintln!();
-    } else {
-        eprintln!("\n⚠️  No commands found in history.\n");
-    }
-    
     let history_context = format_history_context(&commands);
 
     // Build user message with history context
